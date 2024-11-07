@@ -32,38 +32,52 @@ struct profiler
 };
 static profiler GlobalProfiler;
 
+template <std::size_t N>
+struct fixed_string {
+    char chars[N] = {};
+    explicit(false) constexpr fixed_string(const char (&str)[N])
+    {
+        // std::copy_n(std::begin(str), N, std::begin(chars));
+        for (std::size_t i = 0; i < N; ++i) {
+            chars[i] = str[i];
+        }
+    }
+};
+
+template <std::size_t N>
+fixed_string(const char (&str)[N]) -> fixed_string<N>;
+
+template <u32 AnchorIndex, fixed_string Label>
+struct label_registrator {
+    label_registrator() { GlobalProfiler.Anchors[AnchorIndex].Label = Label.chars; }
+};
+
+template <u32 AnchorIndex, fixed_string Label>
+label_registrator<AnchorIndex, Label> register_label{};
+
+template <u32 AnchorIndex, fixed_string Label, auto& = register_label<AnchorIndex, Label>>
 struct profile_block
 {
-    profile_block(char const *Label_, u32 AnchorIndex_)
+    profile_block()
     {
-        AnchorIndex = AnchorIndex_;
-        Label = Label_;
         StartTSC = ReadCPUTimer();
     }
     
-    ~profile_block(void)
+    ~profile_block()
     {
         u64 Elapsed = ReadCPUTimer() - StartTSC;
         
         profile_anchor *Anchor = GlobalProfiler.Anchors + AnchorIndex;
         Anchor->TSCElapsed += Elapsed;
         ++Anchor->HitCount;
-                
-        /* NOTE(casey): This write happens every time solely because there is no
-           straightforward way in C++ to have the same ease-of-use. In a better programming
-           language, it would be simple to have the anchor points gathered and labeled at compile
-           time, and this repetative write would be eliminated. */
-        Anchor->Label = Label;
     }
 
-    char const *Label;
     u64 StartTSC;
-    u32 AnchorIndex;
 };
 
 #define NameConcat2(A, B) A##B
 #define NameConcat(A, B) NameConcat2(A, B)
-#define TimeBlock(Name) profile_block NameConcat(Block, __LINE__)(Name, __COUNTER__ + 1);
+#define TimeBlock(Name) profile_block<__COUNTER__ + 1, Name> NameConcat(Block, __LINE__){};
 #define TimeFunction TimeBlock(__func__)
 
 static void PrintTimeElapsed(u64 TotalTSCElapsed, profile_anchor *Anchor)
